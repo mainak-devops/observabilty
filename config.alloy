@@ -1,0 +1,75 @@
+// 1. METRICS PIPELINE: Scrape Alloy & Loki, then remote-write to Prometheus
+prometheus.scrape "local_targets" {
+  targets = [
+    {"__address__" = "localhost:12345", "job" = "alloy"},
+    {"__address__" = "loki:3100",       "job" = "loki"},
+  ]
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.prom.receiver]
+}
+
+prometheus.remote_write "prom" {
+  endpoint {
+    url = "http://prometheus:9090/api/v1/write"
+  }
+}
+
+// 2. SYSLOG PIPELINE: Receive RFC5424 TCP logs from rsyslog -> relabel -> Loki
+loki.source.syslog "rsyslog_in" {
+  listener {
+    address       = "0.0.0.0:1514"
+    protocol      = "tcp"
+    syslog_format = "rfc5424"
+    labels        = { component = "rsyslog" }
+  }
+  forward_to = [loki.relabel.syslog_labels.receiver]
+}
+
+loki.relabel "syslog_labels" {
+  forward_to = [loki.write.loki_out.receiver]
+
+  rule {
+    source_labels = ["__syslog_message_hostname"]
+    target_label  = "host"
+  }
+  rule {
+    source_labels = ["__syslog_message_app_name"]
+    target_label  = "app"
+  }
+  rule {
+    source_labels = ["__syslog_message_severity"]
+    target_label  = "level"
+  }
+}
+
+loki.write "loki_out" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+// 3. OPENTELEMETRY PIPELINE: Accept OTLP logs/metrics and route to Loki/Prometheus
+otelcol.receiver.otlp "default" {
+  grpc { endpoint = "0.0.0.0:4317" }
+  http { endpoint = "0.0.0.0:4318" }
+
+  output {
+    metrics = [otelcol.processor.batch.default.input]
+    logs    = [otelcol.processor.batch.default.input]
+  }
+}
+
+otelcol.processor.batch "default" {
+  output {
+    metrics = [otelcol.exporter.prometheus.default.input]
+    logs    = [otelcol.exporter.loki.default.input]
+  }
+}
+
+otelcol.exporter.prometheus "default" {
+  forward_to = [prometheus.remote_write.prom.receiver]
+}
+
+otelcol.exporter.loki "default" {
+  forward_to = [loki.write.loki_out.receiver]
+}
