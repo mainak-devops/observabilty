@@ -45,6 +45,7 @@ services:
 
   rsyslog:
     image: rsyslog/syslog_appliance_alpine:latest
+    platform: linux/amd64
     container_name: rsyslog
     volumes:
       - ./rsyslog.conf:/etc/rsyslog.conf:ro
