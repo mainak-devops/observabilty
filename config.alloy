@@ -1,4 +1,4 @@
-// 1. METRICS PIPELINE: Scrape Alloy & Loki, then remote-write to Prometheus
+// 1. METRICS PIPELINE
 prometheus.scrape "local_targets" {
   targets = [
     {"__address__" = "localhost:12345", "job" = "alloy"},
@@ -14,7 +14,7 @@ prometheus.remote_write "prom" {
   }
 }
 
-// 2. SYSLOG PIPELINE: Receive RFC5424 TCP logs from rsyslog -> relabel -> Loki
+// 2. SYSLOG PIPELINE
 loki.source.syslog "rsyslog_in" {
   listener {
     address       = "0.0.0.0:1514"
@@ -22,11 +22,12 @@ loki.source.syslog "rsyslog_in" {
     syslog_format = "rfc5424"
     labels        = { component = "rsyslog" }
   }
-  forward_to = [loki.relabel.syslog_labels.receiver]
+  relabel_rules = loki.relabel.syslog_labels.rules
+  forward_to    = [loki.write.loki_out.receiver]
 }
 
 loki.relabel "syslog_labels" {
-  forward_to = [loki.write.loki_out.receiver]
+  forward_to = []
 
   rule {
     source_labels = ["__syslog_message_hostname"]
@@ -48,7 +49,7 @@ loki.write "loki_out" {
   }
 }
 
-// 3. OPENTELEMETRY PIPELINE: Accept OTLP logs/metrics and route to Loki/Prometheus
+// 3. OPENTELEMETRY PIPELINE
 otelcol.receiver.otlp "default" {
   grpc { endpoint = "0.0.0.0:4317" }
   http { endpoint = "0.0.0.0:4318" }
