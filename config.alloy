@@ -1,4 +1,4 @@
-// 1. METRICS PIPELINE
+// 1. METRICS PIPELINE: Scrape Alloy & Loki, then remote-write to Prometheus
 prometheus.scrape "local_targets" {
   targets = [
     {"__address__" = "localhost:12345", "job" = "alloy"},
@@ -14,7 +14,7 @@ prometheus.remote_write "prom" {
   }
 }
 
-// 2. SYSLOG PIPELINE
+// 2. SYSLOG PIPELINE: Receive RFC5424 TCP logs from rsyslog -> relabel -> Loki
 loki.source.syslog "rsyslog_in" {
   listener {
     address       = "0.0.0.0:1514"
@@ -49,7 +49,7 @@ loki.write "loki_out" {
   }
 }
 
-// 3. OPENTELEMETRY PIPELINE
+// 3. OPENTELEMETRY PIPELINE: Accept OTLP logs/metrics and route to Loki/Prometheus
 otelcol.receiver.otlp "default" {
   grpc { endpoint = "0.0.0.0:4317" }
   http { endpoint = "0.0.0.0:4318" }
@@ -72,5 +72,36 @@ otelcol.exporter.prometheus "default" {
 }
 
 otelcol.exporter.loki "default" {
+  forward_to = [loki.write.loki_out.receiver]
+}
+
+// 4. DOCKER CONTAINER LOGS PIPELINE (Excludes Loki self-query noise)
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "docker_labels" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(loki)"
+    action        = "drop"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+}
+
+loki.source.docker "default" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.docker_labels.output
+  labels     = { component = "docker" }
   forward_to = [loki.write.loki_out.receiver]
 }
