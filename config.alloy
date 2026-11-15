@@ -65,7 +65,8 @@ otelcol.processor.batch "default" {
   output {
     metrics = [otelcol.exporter.prometheus.default.input]
     logs    = [otelcol.exporter.loki.default.input]
-    traces  = [otelcol.exporter.otlp.tempo.input]
+    traces  = [otelcol.exporter.otlp.tempo.input,
+              otelcol.exporter.debug.default.input]
   }
 }
 
@@ -84,6 +85,10 @@ otelcol.exporter.otlp "tempo" {
       insecure = true
     }
   }
+}
+
+otelcol.exporter.debug "default" {
+  verbosity = "detailed"
 }
 
 // 4. DOCKER CONTAINER LOGS PIPELINE (Excludes Loki self-query noise)
