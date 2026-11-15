@@ -41,6 +41,7 @@ services:
     depends_on:
       - prometheus
       - loki
+      - tempo
     networks:
       - obs-net
 
@@ -70,9 +71,42 @@ services:
     depends_on:
       - prometheus
       - loki
+      - tempo
+    networks:
+      - obs-net
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: tempo
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./tempo-config.yml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"
+    networks:
+      - obs-net
+
+  sample-app:
+    build: ./sample-app
+    container_name: sample-app
+    ports:
+      - "8000:8000"
+    environment:
+      - OTEL_SERVICE_NAME=checkout-api
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=none
+      - OTEL_LOGS_EXPORTER=none
+    depends_on:
+      - alloy
     networks:
       - obs-net
 
 networks:
   obs-net:
     driver: bridge
+
+volumes:
+  tempo-data:
